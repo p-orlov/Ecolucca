@@ -1,0 +1,3 @@
+# Endless food (run with --set FOOD=100): one founder from a short press, then the ecosystem on its own.
+0 key C3 down
+3 key C3 up

@@ -1,0 +1,5 @@
+# Drift: C3 held 30 s (a colony grows), then C4 held 30 s instead: the hungry C3 cells drift up to it.
+0 key C3 down
+30 key C3 up
+30 key C4 down
+60 key C4 up

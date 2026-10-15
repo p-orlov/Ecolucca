@@ -226,9 +226,6 @@ static uint32_t div_samples(uint32_t div)
     return div < 6u ? quarter / DIV_DEN[div] : div < 10u ? quarter << (div - 5u) : quarter / DIV_DEN[div % 6u];
 }
 
-#include "perform.c"                                 /* the FX hold layer's effects (the master) */
-#include "click.c"                                   /* the metronome's click (after the master: audio.c) */
-
 /* the delay's TIME (params.c N_DTIME): N_DIV's ten (div_samples), then 1.5.1's dotted 1/8D 1/16D 1/4D (10, 11, 12: 3/4,
  * 3/8, 3/2 of a quarter); at most DLY_LEN - 1 samples (1.486 s): 1/4D clamps at 60 BPM and below (1/2 below 81) */
 static const uint8_t DIV_DOT[3] = {2, 3, 1};           /* 3 quarters >> this */
@@ -537,9 +534,6 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
     int32_t dmix = song.g[G_DMIX] * 258;
     int32_t cdepth = song.g[G_CDEPTH] * 6, rt;
     uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
-    if (pf.ew1 && fb < THR_FB)
-        fb += mulq16(THR_FB - fb, (uint32_t)pf.ew1 << 1);   /* ECHO THROW (perform.c): more feedback while held, 0.7
-                                                             * at most (the loop's gain below 1: it never runs away) */
     for (i = 0; i < n; i++) {
         int32_t y = 0, x, r;
         /* chorus: modulated short delay, 5..15 ms */
@@ -596,7 +590,7 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
  *   CRUSH                BITS (1 .. 16, of a voice's full scale), RATE (a held sample, 689 Hz .. 44.1 kHz, INS_HOLD:
  *                        aliasing as the old samplers), LPF (two one-pole low-passes at F_CUTOFF after them, #177);
  *   PHASR                RATE (F_LFOHZ), DEPTH (the sweep around ~850 Hz: 0 still .. the whole 150 Hz .. 4.8 kHz),
- *                        FDBK (0 .. 0.7): the FX layer's four all-pass stages (perform.c PH_A), mono, per track;
+ *                        FDBK (0 .. 0.7): four all-pass stages (PH_A), mono, per track;
  *   FLANG CHOR           RATE, DEPTH, FDBK: a 256-sample line per track (5.8 ms); FLANG swept 0.25 .. 5 ms (the FX
  *                        layer's squared triangle), feedback 0 .. 0.85; CHOR a sine around 3.2 ms (+-2.3 ms at DEPTH
  *                        127), feedback 0 .. 0.4. A DC blocker on the swept copy (a clipped loud input is lopsided).
@@ -605,12 +599,29 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
  * as before (nothing runs). MIX glides (2.9 ms, SL_SLOPE); a TYPE change fades the old one out, clears the state,
  * fades the new one in; so does a start from MIX 0 (no stale line or filter). With SPREAD (mix_spread) the insert
  * takes the mono sum b, as DIST does; the side passes it by.
- * Order: DIST -> INSERT -> SLICER: the insert colours the sound as DIST does; the SLICER's gate (and its STUT
- * recordings) comes after, so its edges stay sharp (no flanger feedback or phaser ringing smears them) and a STUT
- * repeats the processed sound. State in the pool, per track (ins[], 580 B each); noinline, its own loops: the audio
- * ISR's inlined path gains one test per part (track_t ins_run) */
+ * Order: DIST -> INSERT: the insert colours the sound as DIST does. State in the pool, per track (ins[], 580 B each);
+ * noinline, its own loops: the audio ISR's inlined path gains one test per part (track_t ins_run) */
 enum { IT_OFF, IT_SOFT, IT_HARD, IT_FOLD, IT_FUZZ, IT_CRUSH, IT_PHASER, IT_FLANGER, IT_CHORUS, IT_N };
 #define IL_LEN 256u                     /* FLANG / CHOR: the line, samples (a power of 2: masked) */
+#define SL_SLOPE (32768 / 128)          /* MIX's glide a sample (128 samples, 2.9 ms end to end) */
+#define PH_ST 4u                        /* PHASR: all-pass stages (two notches, the classic pedal's) */
+/* PHASR: the stages' coefficient a (Q14) for a break of 150 Hz * 2^(5 i / 32): a = (g - 1) / (g + 1), g = tan(pi f / fs) */
+static const int16_t PH_A[33] = {
+    -16038, -15998, -15955, -15906, -15853, -15793, -15727, -15653, -15572, -15481, -15381, -15270, -15147, -15012,
+    -14862, -14696, -14514, -14313, -14092, -13849, -13582, -13290, -12970, -12621, -12240, -11825, -11375, -10886,
+    -10356, -9784, -9166, -8500, -7783,
+};
+/* x towards y by w (Q15, 32768 = y) */
+static inline int32_t pf_mix(int32_t x, int32_t y, int32_t w)
+{
+    return w == 32768 ? y : x + mulq16(y - x, (uint32_t)w << 1);
+}
+/* a triangle of the sweep's place q, 0 .. 65534 (Q16) */
+static inline uint32_t pf_tri(uint32_t q)
+{
+    uint32_t t = q >> 16;
+    return t < 32768u ? t << 1 : (65535u - t) << 1;
+}
 static const uint8_t INS_HOLD[16] = {64, 48, 40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1};   /* CRUSH RATE */
 typedef struct {
     int32_t w;                          /* the wet share now, Q15 */
@@ -777,18 +788,17 @@ static __attribute__((noinline)) void track_insert(track_t *t, int32_t *b, uint3
     t->ins_run = s->w != 0;                             /* (mix_part calls again while it fades) */
 }
 
-/* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
- * -> dist -> INSERT -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
-static void events_block(uint32_t n);                    /* seq.c */
+/* one block of the whole mix: events -> the part (with its modulation matrix)
+ * -> dist -> INSERT -> level / pan / sends -> buses -> master; out: stereo Q15 */
+static void events_block(uint32_t n);                    /* input.c */
 static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
 
 /* SPREAD (#148): a POLY or UNISON part whose SPRD is above 0. Its voices start left and right of PAN in turn (voice.c
  * voice_start; UNISON's detuned voices alternate), at PAN -/+ SPRD / 2 (SPRD 127: hard left and right), with the pan
  * law PAN has (the far side down, the near one as it is). track_render gives every voice (b, as always) and the left
  * ones (spread_buf); here d = left - right, the side signal, so for a pair of pans L = b (gla + glb) / 2 + d (gla - glb)
- * / 2 (R alike): the mono sum is b's, the level of a centre pan less by SPRD / 256 at most. b goes through DIST, the
- * SLICER and the FX layer's mute key as always; d gets the SLICER's gate and the mute's ramp (slicer_track_sd,
- * perf_mute_sd) and passes DIST by (the spread of a distorted chord is its voices' clean difference). The sends
+ * / 2 (R alike): the mono sum is b's, the level of a centre pan less by SPRD / 256 at most. b goes through DIST as
+ * always; d passes DIST by (the spread of a distorted chord is its voices' clean difference). The sends
  * take b, mono, as before. SPRD 0, MONO or LEGATO: mix_part's own loop, bit for bit as before. The cost: a block's
  * clear and sum of spread_buf, the side and a wider mix loop, per part; per voice none (it picks its buffer) */
 static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_t n)
@@ -808,9 +818,6 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     track_dist(t, b, n);
     if (t->p[P_ITYPE] | t->ins_run)
         track_insert(t, b, n);                          /* (the mono sum, as DIST) */
-    slicer_track_sd(t, b, d, n);
-    if ((pf.mute >> (t - trk)) & 1u)
-        perf_mute_sd((uint32_t)(t - trk), b, d, n);
     for (i = 0; i < n; i++) {
         int32_t x = ((b[i] >> 2) * lvl) >> 10, a = x < 0 ? -x : x, y = ((d[i] >> 2) * lvl) >> 10;
         int32_t xs = clamp(x, -xmax, xmax);
@@ -839,8 +846,7 @@ static void mix_part(track_t *t, uint32_t n)
     if (track_render(t, b, n))
         t->tail = t->p[P_ITYPE] ? 64 : 16;              /* blocks of DIST / INSERT state to run out after the last
                                                          * voice (the INSERT's: 46 ms, a flanger's feedback) */
-    else if ((!t->tail || !(t->p[P_DIST] | t->p[P_ITYPE]) || !--t->tail) && !slicer_busy(t)) {
-        slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
+    else if (!t->tail || !(t->p[P_DIST] | t->p[P_ITYPE]) || !--t->tail) {
         if (t->ins_run && !t->p[P_ITYPE])
             ins_rest(t);                                /* TYPE OFF while silent: no fade-out left for the next note */
         if (mod.on)
@@ -853,9 +859,6 @@ static void mix_part(track_t *t, uint32_t n)
         track_dist(t, b, n);
         if (t->p[P_ITYPE] | t->ins_run)
             track_insert(t, b, n);                      /* the INSERT (1.5): off, nothing */
-        slicer_track(t, b, n);                          /* slicer.c: before the level, pan and sends */
-        if ((pf.mute >> (t - trk)) & 1u)
-            perf_mute((uint32_t)(t - trk), b, n);       /* perform.c: a black key in the FX layer */
     }
     if (!spread_on) {                                   /* (the mix's values read after the calls: none is held over
                                                          * them, no spill in the loop: the ISR's cost as before 1.5) */
@@ -880,67 +883,37 @@ static void mix_part(track_t *t, uint32_t n)
         }
         t->peak = pk;
     }
-    if (pf.thr)
-        perf_throw(t, b, send_d, send_r, n);            /* perform.c: REV / ECHO THROW (1.5.1), the sends towards full */
+    if (vox_n) {                                        /* the voices of their own parameters (voice.c vox_mix) */
+        for (i = 0; i < n; i++) {
+            mix_l[i] += vox_l[i];
+            mix_r[i] += vox_r[i];
+            send_c[i] += vox_sc[i];
+            send_d[i] += vox_sd[i];
+            send_r[i] += vox_sr[i];
+        }
+        vox_n = 0;
+    }
     if (mod.on)
         mod_end(t);                                     /* the stored values back */
 }
 
-/* the HOME oscilloscope (ui_graph.c graph_scope): every other sample of the left channel. MENU > DISPLAY > SCOPE (1.2,
- * Discussion #165): OUT (0, the default) what goes out, after MASTER (audio.c audio_block, before the click); MIX the
- * mix before MASTER (and before the FX layer, SPEAKER EQ and the limiter), at the level MASTER at its top gives, so its
- * size does not follow the volume. The click is in neither */
+/* the oscilloscope: every other sample of the left channel, what goes out (after MASTER: audio.c audio_block) */
 #define SCOPE_N 512u
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
-static volatile uint8_t scope_mix;
-static __attribute__((noinline)) void scope_take_mix(uint32_t n)
-{
-    uint32_t i;
-    for (i = 1; i < n; i += 2u)                         /* (((x >> 2) * MASTER_FULL) >> 10 is x) */
-        scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)clamp(mix_l[i] + wet[i], -32767, 32767);
-}
-
-/* the master with the FX layer's effects between its level and master_out (perform.c) */
-static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
-{
-    uint32_t i;
-    int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
-    for (i = 0; i < n; i++) {
-        mix_l[i] = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
-        mix_r[i] = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;
-    }
-    perf_block(mix_l, mix_r, n);
-    for (i = 0; i < n; i++) {
-        int32_t l = mix_l[i], r = mix_r[i];
-        master_out(&l, &r);
-        out[2u * i] = l;
-        out[2u * i + 1u] = r;
-    }
-}
 
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
-    int perf;
     int32_t mg = fx_usb_fixed ? MASTER_FULL : (int32_t)song.master_q12;   /* (USB LEVEL FIXED: MASTER after) */
     for (i = 0; i < n; i++)
         send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     events_block(n);
-    perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
     for (i = 0; i < NPART; i++)
         mix_part(&trk[i], n);
-    if (perf)
-        perf_pre(mix_l, mix_r, send_d, send_r, n);
     fx_buses(send_c, send_d, send_r, wet, n);
     if (hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
-    if (scope_mix)
-        scope_take_mix(n);
-    if (perf) {
-        perf_master(out, n);
-        return;
-    }
     for (i = 0; i < n; i++) {
         int32_t l = (((mix_l[i] + wet[i]) >> 2) * mg) >> 10;
         int32_t r = (((mix_r[i] + wet[i]) >> 2) * mg) >> 10;

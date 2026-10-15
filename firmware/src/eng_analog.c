@@ -56,7 +56,7 @@ static void analog_note_on(track_t *t, voice_t *v)
 static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, int32_t *out, uint32_t n,
                                                       const vmod_t *m)
 {
-    const int16_t *p = t->p;
+    const int16_t *p = voice_params(t, v);
     uint32_t sub = p[P_E0] == AW_SUB, i;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
     int32_t cut = (p[P_E4] << 8) + m->cutoff + (p[P_E7] * (v->pitch16 - 60 * 16) >> 4);
@@ -120,7 +120,7 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
 static inline __attribute__((always_inline)) void analog_osc(track_t *t, voice_t *v, int32_t *out, uint32_t n,
                                                              const vmod_t *m, uint32_t ft)
 {
-    const int16_t *p = t->p;
+    const int16_t *p = voice_params(t, v);
     uint32_t wave = (uint32_t)p[P_E0], i;
     int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3];
     int32_t cut = (p[P_E4] << 8) + m->cutoff + (p[P_E7] * (v->pitch16 - 60 * 16) >> 4);
@@ -186,14 +186,15 @@ static inline __attribute__((always_inline)) void analog_osc(track_t *t, voice_t
 }
 static __attribute__((noinline)) void analog_render_f(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    analog_osc(t, v, out, n, m, (uint32_t)t->p[P_FTYPE]);
+    analog_osc(t, v, out, n, m, (uint32_t)voice_params(t, v)[P_FTYPE]);
 }
 
 static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    if (t->p[P_E0] >= AW_SYNC)
+    const int16_t *p = voice_params(t, v);
+    if (p[P_E0] >= AW_SYNC)
         analog_render_x(t, v, out, n, m);
-    else if (t->p[P_FTYPE])
+    else if (p[P_FTYPE])
         analog_render_f(t, v, out, n, m);
     else
         analog_osc(t, v, out, n, m, 0);
@@ -212,6 +213,9 @@ static const preset_t ANALOG_PRESETS[] = {
     {"BRASS", {0, 10, 64, 0, 45, 20, 10, 64}, {35, 70, 90, 45}, 40, 0, FX(0, 20, 20, 40), PAT(6)},
     {"WIND", {0, 0, 0, 90, 30, 90, 0, 0}, {60, 90, 60, 80}, 50, 0, FX(0, 30, 30, 70), PAT(5)},
     {"STRINGS", {0, 25, 64, 0, 70, 10, 0, 32}, {70, 90, 115, 90}, 5, 0, FX(0, 60, 20, 70), PAT(5)},
+    {"PERC", {3, 0, 0, 0, 70, 30, 20, 64}, {0, 30, 0, 25}, 45, 0, FX(0, 10, 30, 35), PAT(1)},
+    {"BLIP", {1, 0, 0, 0, 80, 50, 0, 64}, {0, 18, 0, 12}, 40, 0, FX(0, 0, 40, 25), PAT(1)},
+    {"NOISE HIT", {0, 0, 0, 127, 95, 40, 0, 64}, {0, 20, 0, 15}, 30, 0, FX(0, 0, 20, 40), PAT(1)},
 };
 
 static const engine_t ENG_ANALOG = {

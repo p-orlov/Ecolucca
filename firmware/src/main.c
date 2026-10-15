@@ -95,32 +95,22 @@ static void fm1_fault(const fm1_crash_t *c)
     fm1_reboot();
 }
 
-/* power-on: the parts with their default sounds (TRK_DEF); the sequencers empty */
+/* power-on: the part with its default sound, the song's globals at their defaults */
 static void felucca_init(void)
 {
     uint32_t i;
-    chain_defaults(&chain_config);
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
-    undo_depth++;                             /* (no undo copy of the power-on loads) */
-    fm6_init();                               /* every track's FM6 patch: the init voice */
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         track_defaults(t);
-        set_engine_of(t, TRK_DEF[i][0]);
-        apply_preset_to(t, TRK_DEF[i][1]);    /* with its sends */
+        sound_preset(t, PRESET_DEF);
         t->engine = t->eng_req;
-        eng_mem_claim(t);                     /* (zeros already: no note can come before) */
-        track_defaults_steps(t);              /* (a sound load never touches them) */
-        if (TRK_DEF[i][2])
-            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
-        pat_sig[i] = steps_sig(t);            /* a default pattern, not the user's */
-        pat_last[i] = TRK_DEF[i][2];
     }
-    undo_depth--;
+    panic_req = 0;
     song.sel = 0;
     song.master_q12 = 2048;                   /* (the pot's level replaces it before the audio starts: master_boot) */
-    ui.home = 1;
+    fx_usb_fixed = (ui_prefs & PREF_USB_FIXED) != 0u;
     ui.force = 1;
 }
 
@@ -133,7 +123,7 @@ static void felucca_init(void)
  * UI. The UBOOT paths never get here. */
 static uint32_t crash_seen __attribute__((section(".noinit")));   /* fm1_crash.count at the last boot */
 static uint8_t boot_clean;                    /* no crash, hang (WDT) or failed boot before this one (boot_leds):
-                                               * the sweep runs and the autosave is restored (project.c autosave_boot) */
+                                               * the sweep runs and the autosave is restored (persist.c autosave_boot) */
 static void boot_leds(void)
 {
     uint32_t crashed = fm1_crash.magic == FM1_CRASH_MAGIC && fm1_crash.count != crash_seen;
@@ -174,7 +164,7 @@ static void fm1_main(void)
     panel_init();
     felucca_init();
     master_boot();
-    kb_boot_hold = 1;                         /* #137: no notes from the keys before the UI (seq.c keyboard_block) */
+    kb_boot_hold = 1;                         /* #137: no notes from the keys before the UI (input.c keyboard_block) */
     audio_init();
     usb_start();
 #if FELUCCA_UART
@@ -185,11 +175,7 @@ static void fm1_main(void)
     fm1_guard_lock_top();
     fm1_irq_enable_all();
     fm1_delay_ms(30);
-    if ((fm1_in.buttons & 3u) == 3u) {
-        panel_setup();                        /* OCT- + OCT+ held at power-on */
-        settings_save();
-    }
-    autosave_boot(boot_clean);                /* (1.2) the last session's music, under the splash */
+    autosave_boot(boot_clean);                /* the last session's sound, under the splash */
     for (ms = 0; ms < 400u; ms += 10u) {      /* the splash; the pot followed (MIDI IN plays under it) */
         fm1_delay_ms(10);
         master_poll();
@@ -242,7 +228,6 @@ static void fm1_main(void)
             }
         }
 #if FELUCCA_OTA
-        ed_service();                                   /* web editor SysEx */
         ota_service();                                  /* M-UPGRADE handshake */
         if (usb.ota_req) {                              /* M-UPGRADE upgrade command */
             usb.ota_req = 0;
@@ -270,21 +255,17 @@ static void fm1_main(void)
 #endif
         felucca_dbg.ui_frames++;
         felucca_dbg.page = ui.page;
-        felucca_dbg.home = ui.home;
+        felucca_dbg.home = ui.menu;
         felucca_dbg.stage = 1;
         ui_input();
-        settings_poll();                              /* queued settings save: only while stopped */
-        autosave_poll();                              /* (1.2) the music, stopped and idle: project.c */
+        settings_poll();                              /* queued settings save */
+        autosave_poll();                              /* the sound, idle: persist.c */
         felucca_dbg.stage = 2;
         ui_leds();
         ui_draw();
         felucca_dbg.stage = 9;
-        while (fm1_ms - m < 15u) {                               /* ~60 UI frames/s at most */
+        while (fm1_ms - m < 15u)                                 /* ~60 UI frames/s at most */
             ui_input();
-#if FELUCCA_OTA
-            ed_service();                       /* editor replies without waiting for the next frame */
-#endif
-        }
     }
 }
 

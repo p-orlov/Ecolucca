@@ -4,9 +4,9 @@
  * RX DMA into a 128-byte ring, polled from the TIMER5 ISR (no UART IRQ).
  * FELUCCA_UART=0 disables this input. Channel
  * messages go into midi_in_q next to USB, as
- * USB-MIDI packets (cable 0, CIN = status >> 4), so seq.c routes them by channel
+ * USB-MIDI packets (cable 0, CIN = status >> 4), so input.c routes them by channel
  * exactly as USB (CH1-4 or SEL;
- * host tests: midi_uart_test, hostsim TRACKS trs_test);
+ * host tests: midi_uart_test);
  * Clock/Start/Continue/Stop retain timestamps and source; other realtime,
  * system common and SysEx are ignored (no SysEx->UBOOT from DIN). */
 #include "../hal/fm1_uart.h"   /* registers; relative, so the host tests find it too */

@@ -9,7 +9,7 @@
  *   VEL   the note-on velocity (before UNISON's level scaling), 0..1
  *   KEY   the note relative to C4, bipolar: +-64 semitones = +-1 (an octave = 0.19)
  *   RAND  a new random value per note-on (its own generator: the shared rng is not touched), bipolar
- *   MODW  MIDI CC1, AT channel aftertouch, EXPR CC11 of the track's channel (seq.c), 0..1; until a
+ *   MODW  MIDI CC1, AT channel aftertouch, EXPR CC11 of the track's channel (input.c), 0..1; until a
  *         controller arrives (and after CC121 RESET ALL CONTROLLERS) MODW and AT are 0, EXPR 1
  *   S&H   (#132) a random value held for one cycle of the track LFO: the value LFO WAVE S&H steps through
  *         (voice.c lfo_rand, drawn as each cycle starts, whatever the WAVE), without the LFO's FADE, POL or
@@ -316,7 +316,7 @@ static uint32_t mod_note(track_t *t, uint32_t note, uint32_t vel)
 #define MOD_TIME_MAX ((uint32_t)FS * 30u / 1000u)
 static __attribute__((noinline)) uint32_t mod_time(track_t *t, uint32_t note, uint32_t vel, uint32_t period)
 {
-    uint32_t mx = period * 7u / NUDGE_DIV, d;
+    uint32_t mx = period * 7u / 16u, d;
     int32_t q;
     if (!mod_has(t, MD_TIME))
         return 0;
@@ -325,7 +325,7 @@ static __attribute__((noinline)) uint32_t mod_time(track_t *t, uint32_t note, ui
     return d < mx ? d : mx;
 }
 
-/* a MIDI controller for track t (seq.c events_block): CC1 / CC11 / channel aftertouch; CC121 resets them */
+/* a MIDI controller for track t (input.c events_block): CC1 / CC11 / channel aftertouch; CC121 resets them */
 static __attribute__((noinline)) void mod_midi(track_t *t, uint32_t st, uint32_t d1, uint32_t d2)
 {
     if (st == 0xD0u) {

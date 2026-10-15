@@ -1,0 +1,3 @@
+# Budding: C3 held for 40 s (energy and material), then left alone.
+0 key C3 down
+40 key C3 up

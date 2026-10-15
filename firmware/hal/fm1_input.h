@@ -106,7 +106,7 @@
 #endif
 #define FM1_DEB_PRESS 2u          /* frames closed in a row: a press (a frame = 11 ticks, ~1.1 ms) */
 #define FM1_DEB_RELEASE 8u        /* frames open in a row: a release (~9 ms) */
-#define FM1_INPUT_LAT 1           /* the press latency stats below (seq.c, console `inp`) */
+#define FM1_INPUT_LAT 1           /* the press latency stats below (input.c, console `inp`) */
 #define FM1_SETTLE_US 10u
 #ifndef FM1_LED_DIM_NS
 #define FM1_LED_DIM_NS 3200u      /* a dim LED's pulse per frame (ns; a lit one ~95 us): ~1/30 the brightness */
@@ -193,7 +193,7 @@ static volatile struct {
     uint32_t cost_sum, cost_max, ticks;
     uint32_t enc_moves[FM1_NENC], enc_lost[FM1_NENC];   /* accepted transitions, 2-state jumps */
     uint32_t press_n, press_sum, press_max;   /* note keys: first closed scan -> debounced press (ticks) */
-    /* seq.c keyboard_block, from the same first closed scan: to the note-on in the render, and to
+    /* input.c keyboard_block, from the same first closed scan: to the note-on in the render, and to
      * the note's first sample leaving the I2S DMA (the half it renders starts one half later) */
     uint32_t kb_n, kb_sum, kb_max, dac_sum, dac_max;
     uint32_t dim_n, dim_sum;     /* the dim pulses and their widths (TIMER4 ticks) */

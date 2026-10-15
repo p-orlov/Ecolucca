@@ -58,45 +58,37 @@
 
 /* ----------------------------------------------------------- sound --- */
 #include "core.h"
-#include "engines.c"             /* dsp.c, the eng_*.c files, the factory patterns */
+#include "engines.c"             /* dsp.c, eng_analog.c */
 #include "params.c"
 #include "mod.c"               /* the modulation matrix, used by voice.c and fx.c */
 #include "voice.c"
-#include "slicer.c"              /* per-track SLICER insert, used by fx.c */
 #include "fx.c"
+#include "eco.c"                /* the ecosystem: cells, niches, their notes */
 
-/* ------------------------------------------------- MIDI, sequencer --- */
+/* ------------------------------------------------- MIDI, keyboard --- */
 #include "usb.c"
 #if FELUCCA_UART
 #include "midi_uart.c"
 #endif
-#include "song_chain.c"
-#include "seq.c"
+#include "input.c"
 #include "audio.c"
 
-/* -------------------------------------------------------------- UI --- */
-#include "panel.c"
-#include "ui.c"
-#include "menu_items.c"          /* MENU's rows and settings (ui_menu.c, editor_menu.c) */
-#include "icons.c"               /* parameter icons (FELUCCA_ICONS), used by ui_draw.c */
-#include "ui_graph.c"
-#include "ui_draw.c"
-#include "ui_menu.c"
-#include "ui_input.c"
-#include "ui_layer.c"              /* the quick layers (FX GLO SCL EDIT REC held; SEQ TOOLS: ui_tools.c) */
-
-/* --------------------------------------------- storage, update, editor --- */
+/* ------------------------------------------------- storage, panel --- */
 #if FELUCCA_FLASH
 #include "fm1_flash.h"
 #include "storage_hw.c"
 #include "storage.c"
 #endif
-#include "upreset.c"             /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
-#include "project.c"
+#include "panel.c"
+#include "persist.c"             /* the settings record, the autosave of the sound */
+
+/* -------------------------------------------------------------- UI --- */
+#include "ui_eco.c"
+
+/* ------------------------------------------------- update, console --- */
 #if FELUCCA_OTA
 #include "ota.c"
 #include "ota_hw.c"
-#include "editor.c"              /* web editor SysEx (needs the OTA SysEx plumbing) */
 #endif
 #if FELUCCA_CDC
 #include "console.c"

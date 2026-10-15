@@ -1,0 +1,8 @@
+# A founder on C3, fed for 6 s; a second column (G4) from 2 s to 4 s; a short C3 press at 8 s (material, if C3 still
+# lives); then no input: the population starves and fades.
+0.0  key C3 down 100
+2.0  key G4 down 90
+4.0  key G4 up
+6.0  key C3 up
+8.0  key C3 down 100
+8.2  key C3 up
